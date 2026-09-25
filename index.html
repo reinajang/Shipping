@@ -144,36 +144,46 @@ function parseRegion(rows){
   return out;
 }
 // generic weight-keyed table: headerRowIdx -> col names; weightColIdx defaults 0
+function detectUnit(dataRows, weightColIdx){
+  const vals = dataRows.map(r=>num(r[weightColIdx])).filter(v=>v!==null && v>0);
+  if(!vals.length) return 'kg';
+  return Math.min(...vals) > 30 ? 'g' : 'kg'; // e.g. 100,200,500... => grams; 0.1,0.5,1,2... => kg
+}
 function parseWeightTable(rows, headerRowIdx=0, weightColIdx=0, filterFn=null){
   const header = rows[headerRowIdx]||[];
   const cols = header.map(clean);
   let dataRows = rows.slice(headerRowIdx+1).filter(r=>r && num(r[weightColIdx])!==null);
   if(filterFn) dataRows = rows.slice(headerRowIdx+1).filter(r=>r && filterFn(r) && num(r[weightColIdx])!==null);
-  return {cols, dataRows, weightColIdx};
+  const unit = detectUnit(dataRows, weightColIdx);
+  return {cols, dataRows, weightColIdx, unit};
 }
 function lookupPrice(table, weightKg, colKey){
   const idx = table.cols.findIndex(c=>c===colKey);
   if(idx<0) return null;
+  const target = table.unit==='g' ? weightKg*1000 : weightKg;
   let best=null;
   for(const r of table.dataRows){
     const w = num(r[table.weightColIdx]);
-    if(w===null || w < weightKg - 1e-9) continue;
+    if(w===null || w < target - 1e-6) continue;
     if(!best || w<best.w) best = {w, raw:r[idx]};
   }
   if(!best) return null;
   const price = num(best.raw);
-  return price===null ? null : {price, weight:best.w};
+  if(price===null) return null;
+  return {price, weight: table.unit==='g' ? best.w/1000 : best.w};
 }
 function lookupPriceByIndex(table, weightKg, colIdx){
+  const target = table.unit==='g' ? weightKg*1000 : weightKg;
   let best=null;
   for(const r of table.dataRows){
     const w = num(r[table.weightColIdx]);
-    if(w===null || w < weightKg - 1e-9) continue;
+    if(w===null || w < target - 1e-6) continue;
     if(!best || w<best.w) best = {w, raw:r[colIdx]};
   }
   if(!best) return null;
   const price = num(best.raw);
-  return price===null ? null : {price, weight:best.w};
+  if(price===null) return null;
+  return {price, weight: table.unit==='g' ? best.w/1000 : best.w};
 }
 function findFedexZone(zoneRows, country){
   let zoneColIdx = -1;
@@ -266,12 +276,12 @@ populateWeights();
 function renderDebug(){
   document.getElementById('debug').textContent = JSON.stringify({
     countries: DATA.countries.length,
-    kpacket_cols: DATA.kpacket.cols.slice(0,6),
-    small_cols: DATA.small.cols.slice(0,6),
-    small_rows_filtered: DATA.small.dataRows.length,
-    pkg_cols: DATA.pkg.cols.slice(0,6),
-    ems_cols: DATA.ems.cols.slice(0,6),
-    fedex_cols: DATA.fedex.cols.slice(0,6)
+    rincos: {unit:DATA.rincos.unit, rows:DATA.rincos.dataRows.length},
+    kpacket: {unit:DATA.kpacket.unit, cols:DATA.kpacket.cols.slice(0,6)},
+    small: {unit:DATA.small.unit, cols:DATA.small.cols.slice(0,6), rows_filtered:DATA.small.dataRows.length},
+    pkg: {unit:DATA.pkg.unit, cols:DATA.pkg.cols.slice(0,6)},
+    ems: {unit:DATA.ems.unit, cols:DATA.ems.cols.slice(0,6)},
+    fedex: {unit:DATA.fedex.unit, cols:DATA.fedex.cols.slice(0,6)}
   }, null, 2);
 }
 
