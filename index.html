@@ -72,6 +72,9 @@ pre{white-space:pre-wrap;font-size:.72rem;background:var(--bg);padding:10px;bord
       <div>
         <button class="btn-ghost" id="refreshBtn">↻ 시트 새로고침</button>
       </div>
+      <div>
+        <button class="btn-ghost" id="demoBtn">🧪 데모 데이터로 보기</button>
+      </div>
     </div>
     <div class="status" id="status">시트 데이터를 불러오는 중...</div>
     <div class="status err" id="fileWarning" style="display:none;">⚠ 이 페이지를 file://로 직접 열면 브라우저가 Google Sheets 요청을 차단합니다. 로컬 서버나 웹 호스팅에 올려서 http(s)://로 열어주세요 (아래 안내 참고).</div>
@@ -97,6 +100,7 @@ pre{white-space:pre-wrap;font-size:.72rem;background:var(--bg);padding:10px;bord
 const SSID = '1MXQKy6Br363xvS47-cYwZNPGn0PnyYERdb_TugM0RGc';
 const SHEETS = {
   region: 'Post Region',
+  rincos: 'rincos',
   kpacket: 'K-packet',
   small: '우체국요금',
   package: 'Package-KRW',
@@ -160,6 +164,17 @@ function lookupPrice(table, weightKg, colKey){
   const price = num(best.raw);
   return price===null ? null : {price, weight:best.w};
 }
+function lookupPriceByIndex(table, weightKg, colIdx){
+  let best=null;
+  for(const r of table.dataRows){
+    const w = num(r[table.weightColIdx]);
+    if(w===null || w < weightKg - 1e-9) continue;
+    if(!best || w<best.w) best = {w, raw:r[colIdx]};
+  }
+  if(!best) return null;
+  const price = num(best.raw);
+  return price===null ? null : {price, weight:best.w};
+}
 function findFedexZone(zoneRows, country){
   let zoneColIdx = -1;
   for(let ci=0; ci<(zoneRows[0]||[]).length; ci++){
@@ -184,29 +199,31 @@ async function loadAll(){
   const status = document.getElementById('status');
   status.className='status'; status.textContent='시트 데이터를 불러오는 중...';
   try{
-    const [regionRaw, kpRaw, smallRaw, pkgRaw, emsRaw, fedexRaw, fedexZoneRaw] = await Promise.all(
+    const [regionRaw, rincosRaw, kpRaw, smallRaw, pkgRaw, emsRaw, fedexRaw, fedexZoneRaw] = await Promise.all(
       Object.values(SHEETS).map(fetchRows)
     );
     const countries = parseRegion(regionRaw);
+    const rincos = parseWeightTable(rincosRaw, 0, 0);
     const kpacket = parseWeightTable(kpRaw, 0, 0);
     const small = parseWeightTable(smallRaw, 0, 1, r => clean(r[0]).includes('소형포장물'));
     const pkg = parseWeightTable(pkgRaw, 0, 0);
     const ems = parseWeightTable(emsRaw, 0, 0);
     const fedex = parseWeightTable(fedexRaw, 3, 0);
-    DATA = {countries, kpacket, small, pkg, ems, fedex, fedexZoneRaw};
-    localStorage.setItem(CACHE_KEY, JSON.stringify({t:Date.now(), regionRaw,kpRaw,smallRaw,pkgRaw,emsRaw,fedexRaw,fedexZoneRaw}));
+    DATA = {countries, rincos, kpacket, small, pkg, ems, fedex, fedexZoneRaw};
+    localStorage.setItem(CACHE_KEY, JSON.stringify({t:Date.now(), regionRaw,rincosRaw,kpRaw,smallRaw,pkgRaw,emsRaw,fedexRaw,fedexZoneRaw}));
     populateCountries(countries);
     status.textContent = `데이터 로드 완료 · ${countries.length}개국 · ${new Date().toLocaleTimeString('ko-KR')}`;
     renderDebug();
   }catch(e){
     status.className='status err';
-    status.textContent = '오류: '+e.message+' (캐시된 데이터가 있으면 그것을 사용합니다)';
+    status.textContent = '오류: '+e.message+' — 위 "🧪 데모 데이터로 보기" 버튼으로 화면 미리보기를 확인할 수 있습니다.';
     const cached = localStorage.getItem(CACHE_KEY);
     if(cached && !DATA){
       const c = JSON.parse(cached);
       const countries = parseRegion(c.regionRaw);
       DATA = {
         countries,
+        rincos: parseWeightTable(c.rincosRaw,0,0),
         kpacket: parseWeightTable(c.kpRaw,0,0),
         small: parseWeightTable(c.smallRaw,0,1,r=>clean(r[0]).includes('소형포장물')),
         pkg: parseWeightTable(c.pkgRaw,0,0),
@@ -243,6 +260,11 @@ function compare(){
   if(!country) return;
 
   const results = [];
+  const isUS = country.code==='US' || (country.en||'').toUpperCase()==='UNITED STATES';
+  if(isUS){
+    const rc = lookupPriceByIndex(DATA.rincos, weight, 1);
+    results.push({name:'Rincos', r:rc});
+  }
   const kp = lookupPrice(DATA.kpacket, weight, country.kr);
   results.push({name:'K-Packet', r:kp});
 
@@ -283,6 +305,68 @@ function compare(){
 document.getElementById('compareBtn').onclick = compare;
 document.getElementById('refreshBtn').onclick = loadAll;
 document.getElementById('country').addEventListener('change', ()=>{ if(DATA) compare(); });
+function loadDemoData(){
+  const countries = [
+    {kr:'미국', code:'US', en:'United States', region:'R1'},
+    {kr:'일본', code:'JP', en:'Japan', region:'R1'},
+    {kr:'중국', code:'CN', en:'China', region:'R2'},
+    {kr:'독일', code:'DE', en:'Germany', region:'R3'},
+    {kr:'베트남', code:'VN', en:'Vietnam', region:'R2'}
+  ];
+  DATA = {
+    countries,
+    rincos: {cols:['weight','price'], weightColIdx:0, dataRows:[
+      [0.1,'5000'],[0.3,'6500'],[0.5,'8000'],[1,'12000']
+    ]},
+    kpacket: {cols:['weight','미국','일본','중국','독일','베트남'], weightColIdx:0, dataRows:[
+      [0.1,'4000','3800','3500','5200','3000'],
+      [0.5,'9000','8500','8000','11000','7000'],
+      [1,'15000','14000','13500','18000','12000'],
+      [2,'25000','24000','23000','29000','21000']
+    ]},
+    small: {cols:['type','weight','US','R1','R2','R3'], weightColIdx:1, dataRows:[
+      ['소형포장물',0.1,'3500','3200','3000','4000'],
+      ['소형포장물',0.5,'7000','6500','6200','8000'],
+      ['소형포장물',1,'11000','10500','10000','13000'],
+      ['소형포장물',2,'18000','17500','17000','21000']
+    ]},
+    pkg: {cols:['weight','미국','R1','R2','R3'], weightColIdx:0, dataRows:[
+      [0.5,'9500','9000','8700','11500'],
+      [1,'16000','15000','14500','19000'],
+      [2,'27000','25500','24500','32000'],
+      [5,'55000','52000','50000','65000']
+    ]},
+    ems: {cols:['weight','미국','R1','R2','R3'], weightColIdx:0, dataRows:[
+      [0.5,'13000','12000','11500','15000'],
+      [1,'21000','19500','18500','24000'],
+      [2,'34000','32000','30500','39000'],
+      [5,'70000','66000','63000','80000']
+    ]},
+    fedex: {cols:['weight','ZA','ZB','ZC'], weightColIdx:0, dataRows:[
+      [0.5,'28000','26000','24000'],
+      [1,'38000','35000','32000'],
+      [2,'55000','51000','47000'],
+      [5,'95000','88000','80000']
+    ]},
+    fedexZoneRaw: [
+      ['국가명(한글)','국가명(영문)','Zone'],
+      ['미국','United States','ZA'],
+      ['일본','Japan','ZA'],
+      ['중국','China','ZB'],
+      ['독일','Germany','ZC'],
+      ['베트남','Vietnam','ZB']
+    ]
+  };
+  populateCountries(countries);
+  const status = document.getElementById('status');
+  status.className='status';
+  status.textContent = '🧪 데모 데이터 사용 중 (실제 구글 시트 데이터 아님 — 미리보기 전용)';
+  document.getElementById('fileWarning').style.display='none';
+  document.getElementById('debug').textContent = '데모 데이터 모드입니다.';
+  compare();
+}
+document.getElementById('demoBtn').onclick = loadDemoData;
+
 if(location.protocol==='file:') document.getElementById('fileWarning').style.display='block';
 loadAll();
 </script>
