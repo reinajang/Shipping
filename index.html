@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>해외배송 요금 비교</title>
+<style>
+:root{
+  --bg:#f7f8fa; --card:#fff; --text:#1a1d23; --sub:#666d78; --border:#e4e7eb;
+  --accent:#2f6feb; --accent-bg:#eaf1ff; --best:#0f9d58; --best-bg:#e6f7ee;
+  --danger:#c0392b;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#14161a; --card:#1d2025; --text:#eef0f3; --sub:#9aa2ad; --border:#2c3036;
+    --accent:#5b8cff; --accent-bg:#1c2740; --best:#3ddc84; --best-bg:#123324;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#14161a; --card:#1d2025; --text:#eef0f3; --sub:#9aa2ad; --border:#2c3036;
+  --accent:#5b8cff; --accent-bg:#1c2740; --best:#3ddc84; --best-bg:#123324;
+}
+*{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans KR",sans-serif;min-height:100%;}
+.wrap{max-width:820px;margin:0 auto;padding:24px 16px 60px;}
+h1{font-size:1.3rem;margin:4px 0 2px;}
+.sub{color:var(--sub);font-size:.85rem;margin-bottom:20px;}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px;margin-bottom:16px;}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;}
+.field{flex:1;min-width:160px;}
+label{display:block;font-size:.78rem;color:var(--sub);margin-bottom:6px;}
+select,input{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.95rem;}
+button{cursor:pointer;border:none;border-radius:10px;padding:10px 16px;font-size:.9rem;font-weight:600;}
+.btn-primary{background:var(--accent);color:#fff;}
+.btn-ghost{background:transparent;color:var(--sub);border:1px solid var(--border);}
+.status{font-size:.8rem;color:var(--sub);margin-top:10px;}
+.status.err{color:var(--danger);}
+table{width:100%;border-collapse:collapse;font-size:.9rem;}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--border);}
+th{color:var(--sub);font-weight:600;font-size:.78rem;text-transform:uppercase;letter-spacing:.02em;}
+.tablewrap{overflow-x:auto;}
+tr.best{background:var(--best-bg);}
+tr.best td:first-child{font-weight:700;color:var(--best);}
+.badge{display:inline-block;font-size:.7rem;background:var(--best);color:#fff;border-radius:20px;padding:2px 8px;margin-left:6px;}
+.na{color:var(--sub);}
+details{margin-top:14px;}
+summary{cursor:pointer;color:var(--sub);font-size:.8rem;}
+pre{white-space:pre-wrap;font-size:.72rem;background:var(--bg);padding:10px;border-radius:8px;max-height:260px;overflow:auto;}
+.empty{color:var(--sub);text-align:center;padding:30px 0;font-size:.9rem;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📦 해외배송 요금 비교</h1>
+  <div class="sub">국가와 무게를 선택하면 K-Packet · Small Packet · Package · EMS · FedEx 요금을 비교합니다. (Google Sheets 실시간 연동)</div>
+
+  <div class="card">
+    <div class="row">
+      <div class="field">
+        <label>국가</label>
+        <select id="country"><option>불러오는 중...</option></select>
+      </div>
+      <div class="field" style="max-width:140px;">
+        <label>무게 (kg)</label>
+        <input type="number" id="weight" value="0.5" step="0.1" min="0.1">
+      </div>
+      <div>
+        <button class="btn-primary" id="compareBtn">비교하기</button>
+      </div>
+      <div>
+        <button class="btn-ghost" id="refreshBtn">↻ 시트 새로고침</button>
+      </div>
+    </div>
+    <div class="status" id="status">시트 데이터를 불러오는 중...</div>
+    <div class="status err" id="fileWarning" style="display:none;">⚠ 이 페이지를 file://로 직접 열면 브라우저가 Google Sheets 요청을 차단합니다. 로컬 서버나 웹 호스팅에 올려서 http(s)://로 열어주세요 (아래 안내 참고).</div>
+  </div>
+
+  <div class="card" id="resultCard" style="display:none;">
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>배송 옵션</th><th>금액</th><th>적용 무게구간</th></tr></thead>
+        <tbody id="resultBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <details>
+    <summary>⚙ 데이터 확인 / 디버그</summary>
+    <pre id="debug">-</pre>
+  </details>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script>
+const SSID = '1MXQKy6Br363xvS47-cYwZNPGn0PnyYERdb_TugM0RGc';
+const SHEETS = {
+  region: 'Post Region',
+  kpacket: 'K-packet',
+  small: '우체국요금',
+  package: 'Package-KRW',
+  ems: 'EMS-KRW',
+  fedex: 'Fedex',
+  fedexZone: 'Fedex Zone'
+};
+const CACHE_KEY = 'shipcmp_cache_v1';
+let DATA = null;
+
+function csvUrl(name){
+  return `https://docs.google.com/spreadsheets/d/${SSID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(name)}&_=${Date.now()}`;
+}
+async function fetchRows(name){
+  let res;
+  try{
+    res = await fetch(csvUrl(name));
+  }catch(networkErr){
+    if(location.protocol==='file:'){
+      throw new Error(`"${name}" 요청 실패: 이 파일을 "file://"로 직접 열어서 브라우저가 요청을 차단했습니다. 아래 안내대로 로컬 서버나 웹 호스팅(GitHub Pages 등)에 올려서 http(s):// 주소로 열어주세요.`);
+    }
+    throw new Error(`"${name}" 요청 중 네트워크 오류(CORS 등): ${networkErr.message}`);
+  }
+  if(!res.ok) throw new Error(`"${name}" 시트를 불러올 수 없습니다 (HTTP ${res.status}). 시트 이름이 정확히 일치하는지, 공유 설정이 "링크가 있는 모든 사용자(뷰어)"인지 확인해주세요.`);
+  const text = await res.text();
+  if(text.trim().startsWith('<')) throw new Error(`"${name}" 응답이 CSV가 아니라 로그인/오류 페이지입니다. 시트 공유 설정을 확인해주세요.`);
+  return Papa.parse(text.trim(), {skipEmptyLines:false}).data;
+}
+const num = v => { const n = parseFloat(String(v??'').replace(/[^0-9.\-]/g,'')); return isNaN(n)?null:n; };
+const clean = v => (v??'').toString().trim();
+
+function parseRegion(rows){
+  const out=[];
+  rows.forEach((r,i)=>{
+    const kr=clean(r[0]);
+    if(!kr) return;
+    if(i===0 && (kr.includes('국가')||kr.toLowerCase().includes('country'))) return;
+    out.push({kr, code:clean(r[1]).toUpperCase(), en:clean(r[2]), region:clean(r[3])});
+  });
+  out.sort((a,b)=>a.kr.localeCompare(b.kr,'ko'));
+  return out;
+}
+// generic weight-keyed table: headerRowIdx -> col names; weightColIdx defaults 0
+function parseWeightTable(rows, headerRowIdx=0, weightColIdx=0, filterFn=null){
+  const header = rows[headerRowIdx]||[];
+  const cols = header.map(clean);
+  let dataRows = rows.slice(headerRowIdx+1).filter(r=>r && num(r[weightColIdx])!==null);
+  if(filterFn) dataRows = rows.slice(headerRowIdx+1).filter(r=>r && filterFn(r) && num(r[weightColIdx])!==null);
+  return {cols, dataRows, weightColIdx};
+}
+function lookupPrice(table, weightKg, colKey){
+  const idx = table.cols.findIndex(c=>c===colKey);
+  if(idx<0) return null;
+  let best=null;
+  for(const r of table.dataRows){
+    const w = num(r[table.weightColIdx]);
+    if(w===null || w < weightKg - 1e-9) continue;
+    if(!best || w<best.w) best = {w, raw:r[idx]};
+  }
+  if(!best) return null;
+  const price = num(best.raw);
+  return price===null ? null : {price, weight:best.w};
+}
+function findFedexZone(zoneRows, country){
+  let zoneColIdx = -1;
+  for(let ci=0; ci<(zoneRows[0]||[]).length; ci++){
+    // scan a few header-ish rows for a "zone" label
+    for(let ri=0; ri<Math.min(3,zoneRows.length); ri++){
+      const v = clean(zoneRows[ri][ci]).toLowerCase();
+      if(v.includes('zone')||v.includes('존')||v.includes('구역')) zoneColIdx = ci;
+    }
+  }
+  for(const r of zoneRows){
+    const cells = r.map(clean);
+    if(cells.includes(country.kr) || (country.en && cells.some(c=>c.toLowerCase()===country.en.toLowerCase()))){
+      if(zoneColIdx>=0 && r[zoneColIdx]) return clean(r[zoneColIdx]);
+      const last = [...r].reverse().find(c=>clean(c));
+      if(last) return clean(last);
+    }
+  }
+  return null;
+}
+
+async function loadAll(){
+  const status = document.getElementById('status');
+  status.className='status'; status.textContent='시트 데이터를 불러오는 중...';
+  try{
+    const [regionRaw, kpRaw, smallRaw, pkgRaw, emsRaw, fedexRaw, fedexZoneRaw] = await Promise.all(
+      Object.values(SHEETS).map(fetchRows)
+    );
+    const countries = parseRegion(regionRaw);
+    const kpacket = parseWeightTable(kpRaw, 0, 0);
+    const small = parseWeightTable(smallRaw, 0, 1, r => clean(r[0]).includes('소형포장물'));
+    const pkg = parseWeightTable(pkgRaw, 0, 0);
+    const ems = parseWeightTable(emsRaw, 0, 0);
+    const fedex = parseWeightTable(fedexRaw, 3, 0);
+    DATA = {countries, kpacket, small, pkg, ems, fedex, fedexZoneRaw};
+    localStorage.setItem(CACHE_KEY, JSON.stringify({t:Date.now(), regionRaw,kpRaw,smallRaw,pkgRaw,emsRaw,fedexRaw,fedexZoneRaw}));
+    populateCountries(countries);
+    status.textContent = `데이터 로드 완료 · ${countries.length}개국 · ${new Date().toLocaleTimeString('ko-KR')}`;
+    renderDebug();
+  }catch(e){
+    status.className='status err';
+    status.textContent = '오류: '+e.message+' (캐시된 데이터가 있으면 그것을 사용합니다)';
+    const cached = localStorage.getItem(CACHE_KEY);
+    if(cached && !DATA){
+      const c = JSON.parse(cached);
+      const countries = parseRegion(c.regionRaw);
+      DATA = {
+        countries,
+        kpacket: parseWeightTable(c.kpRaw,0,0),
+        small: parseWeightTable(c.smallRaw,0,1,r=>clean(r[0]).includes('소형포장물')),
+        pkg: parseWeightTable(c.pkgRaw,0,0),
+        ems: parseWeightTable(c.emsRaw,0,0),
+        fedex: parseWeightTable(c.fedexRaw,3,0),
+        fedexZoneRaw: c.fedexZoneRaw
+      };
+      populateCountries(countries);
+      status.textContent += ` (캐시: ${new Date(c.t).toLocaleString('ko-KR')})`;
+    }
+  }
+}
+function populateCountries(countries){
+  const sel = document.getElementById('country');
+  sel.innerHTML = countries.map(c=>`<option value="${c.kr}">${c.kr} (${c.en||c.code})</option>`).join('');
+}
+function renderDebug(){
+  document.getElementById('debug').textContent = JSON.stringify({
+    countries: DATA.countries.length,
+    kpacket_cols: DATA.kpacket.cols.slice(0,6),
+    small_cols: DATA.small.cols.slice(0,6),
+    small_rows_filtered: DATA.small.dataRows.length,
+    pkg_cols: DATA.pkg.cols.slice(0,6),
+    ems_cols: DATA.ems.cols.slice(0,6),
+    fedex_cols: DATA.fedex.cols.slice(0,6)
+  }, null, 2);
+}
+
+function compare(){
+  if(!DATA) return;
+  const krName = document.getElementById('country').value;
+  const weight = num(document.getElementById('weight').value) || 0.1;
+  const country = DATA.countries.find(c=>c.kr===krName);
+  if(!country) return;
+
+  const results = [];
+  const kp = lookupPrice(DATA.kpacket, weight, country.kr);
+  results.push({name:'K-Packet', r:kp});
+
+  let sm = null;
+  if(country.code==='US' || (country.en||'').toUpperCase()==='UNITED STATES'){
+    sm = lookupPrice(DATA.small, weight, 'US') || lookupPrice(DATA.small, weight, country.region);
+  } else {
+    sm = lookupPrice(DATA.small, weight, country.region);
+  }
+  results.push({name:'Small Packet (소형포장물)', r:sm});
+
+  const pkg = lookupPrice(DATA.pkg, weight, country.kr) || lookupPrice(DATA.pkg, weight, country.region);
+  results.push({name:'Package', r:pkg});
+
+  const ems = lookupPrice(DATA.ems, weight, country.kr) || lookupPrice(DATA.ems, weight, country.region);
+  results.push({name:'EMS', r:ems});
+
+  const zone = findFedexZone(DATA.fedexZoneRaw, country);
+  const fx = zone ? lookupPrice(DATA.fedex, weight, zone) : null;
+  results.push({name:'FedEx'+(zone?` (Zone ${zone})`:''), r:fx});
+
+  const valid = results.filter(x=>x.r);
+  const minPrice = valid.length ? Math.min(...valid.map(x=>x.r.price)) : null;
+
+  const body = document.getElementById('resultBody');
+  document.getElementById('resultCard').style.display='block';
+  if(!valid.length){
+    body.innerHTML = `<tr><td colspan="3" class="empty">이 국가에 대한 요금 데이터를 찾지 못했습니다. 디버그 패널을 확인해주세요.</td></tr>`;
+    return;
+  }
+  body.innerHTML = results.map(x=>{
+    if(!x.r) return `<tr><td>${x.name}</td><td class="na" colspan="2">N/A</td></tr>`;
+    const isBest = x.r.price===minPrice;
+    return `<tr class="${isBest?'best':''}"><td>${x.name}${isBest?'<span class="badge">최저가</span>':''}</td><td>${x.r.price.toLocaleString('ko-KR')}원</td><td>${x.r.weight}kg 구간</td></tr>`;
+  }).join('');
+}
+
+document.getElementById('compareBtn').onclick = compare;
+document.getElementById('refreshBtn').onclick = loadAll;
+document.getElementById('country').addEventListener('change', ()=>{ if(DATA) compare(); });
+if(location.protocol==='file:') document.getElementById('fileWarning').style.display='block';
+loadAll();
+</script>
+</body>
+</html>
