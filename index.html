@@ -60,8 +60,7 @@ pre{white-space:pre-wrap;font-size:.72rem;background:var(--bg);padding:10px;bord
     <div class="row">
       <div class="field">
         <label>국가</label>
-        <input list="countryList" id="country" placeholder="국가명을 입력하거나 선택하세요" autocomplete="off">
-        <datalist id="countryList"></datalist>
+        <select id="country"><option>불러오는 중...</option></select>
       </div>
       <div class="field" style="max-width:140px;">
         <label>무게 (kg)</label>
@@ -237,21 +236,18 @@ async function loadAll(){
     }
   }
 }
-function countryLabel(c){ return `${c.kr} (${c.en||c.code})`; }
+function countryLabel(c){ return c.en ? `${c.en} (${c.kr})` : c.kr; }
 function populateCountries(countries){
-  const priority = countries.filter(c=>['US','CA'].includes(c.code) || ['UNITED STATES','CANADA'].includes((c.en||'').toUpperCase()));
-  const rest = countries.filter(c=>!priority.includes(c));
+  const sorted = [...countries].sort((a,b)=>(a.en||a.kr).localeCompare(b.en||b.kr));
+  const priority = sorted.filter(c=>['US','CA'].includes(c.code) || ['UNITED STATES','CANADA'].includes((c.en||'').toUpperCase()));
+  const rest = sorted.filter(c=>!priority.includes(c));
   const ordered = [...priority, ...rest];
-  const dl = document.getElementById('countryList');
-  dl.innerHTML = ordered.map(c=>`<option value="${countryLabel(c)}"></option>`).join('');
-  const input = document.getElementById('country');
-  if(!input.value && priority[0]) input.value = countryLabel(priority[0]);
+  const sel = document.getElementById('country');
+  sel.innerHTML = ordered.map(c=>`<option value="${c.kr}">${countryLabel(c)}</option>`).join('');
 }
 function findCountryByInput(){
-  const val = clean(document.getElementById('country').value);
-  return DATA.countries.find(c=>countryLabel(c)===val) ||
-         DATA.countries.find(c=>c.kr===val) ||
-         DATA.countries.find(c=>(c.en||'').toLowerCase()===val.toLowerCase());
+  const val = document.getElementById('country').value;
+  return DATA.countries.find(c=>c.kr===val);
 }
 function generateWeightOptions(){
   const w = [];
