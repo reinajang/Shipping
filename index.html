@@ -93,6 +93,10 @@ pre{white-space:pre-wrap;font-size:.72rem;background:var(--bg);padding:10px;bord
     <summary>⚙ 데이터 확인 / 디버그</summary>
     <pre id="debug">-</pre>
   </details>
+  <details>
+    <summary>🚚 FedEx 존(Zone) 매칭 확인 (비교할 때마다 갱신)</summary>
+    <pre id="fedexDebug">아직 비교하지 않았습니다. "비교하기"를 눌러주세요.</pre>
+  </details>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
@@ -317,6 +321,14 @@ function compare(){
   const zone = findFedexZone(DATA.fedexZoneRaw, country);
   const fx = zone ? lookupPrice(DATA.fedex, weight, zone) : null;
   results.push({name:'FedEx'+(zone?` (Zone ${zone})`:''), r:fx});
+  document.getElementById('fedexDebug').textContent = JSON.stringify({
+    selected_country_kr: country.kr,
+    selected_country_en: country.en,
+    zone_found: zone,
+    fedex_header_row4: DATA.fedex.cols,
+    zone_exists_in_fedex_cols: zone ? DATA.fedex.cols.includes(zone) : false,
+    fedexZone_sheet_first5rows: DATA.fedexZoneRaw.slice(0,5)
+  }, null, 2);
 
   const valid = results.filter(x=>x.r);
   const minPrice = valid.length ? Math.min(...valid.map(x=>x.r.price)) : null;
