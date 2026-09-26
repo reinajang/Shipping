@@ -159,20 +159,8 @@ function parseWeightTable(rows, headerRowIdx=0, weightColIdx=0, filterFn=null){
   const unit = detectUnit(dataRows, weightColIdx);
   return {cols, dataRows, weightColIdx, unit};
 }
-function headerIndexFor(cols, key){
-  if(!key) return -1;
-  const keyU = key.toUpperCase();
-  let idx = cols.findIndex(c=>clean(c)===key);
-  if(idx>=0) return idx;
-  idx = cols.findIndex(c=>clean(c).toUpperCase()===keyU);
-  if(idx>=0) return idx;
-  idx = cols.findIndex(c=>(clean(c).split(/\s+/)[0]||'').toUpperCase()===keyU);
-  if(idx>=0) return idx;
-  idx = cols.findIndex(c=>clean(c).toUpperCase().startsWith(keyU));
-  return idx;
-}
 function lookupPrice(table, weightKg, colKey){
-  const idx = headerIndexFor(table.cols, colKey);
+  const idx = table.cols.findIndex(c=>c===colKey);
   if(idx<0) return null;
   const target = table.unit==='g' ? weightKg*1000 : weightKg;
   let best=null;
@@ -349,8 +337,8 @@ function compare(){
   }
   results.push({name:'Small Packet (소형포장물)', r:sm});
 
-  const pkgKrIdx = headerIndexFor(DATA.pkg.cols, country.kr);
-  const pkgRegionIdx = headerIndexFor(DATA.pkg.cols, country.region);
+  const pkgKrIdx = DATA.pkg.cols.findIndex(c=>c===country.kr);
+  const pkgRegionIdx = DATA.pkg.cols.findIndex(c=>c===country.region);
   const pkg = lookupPrice(DATA.pkg, weight, country.kr) || lookupPrice(DATA.pkg, weight, country.region);
   results.push({name:'Package', r:pkg});
   lastPackageCheck = {
