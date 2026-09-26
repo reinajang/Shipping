@@ -223,10 +223,14 @@ function packageColIndexFor(key){
   return pos<0 ? -1 : pos+1; // +1: column A is weight
 }
 function lookupEmsPrice(emsRaw, weightKg, key){
-  const headerRow = (emsRaw[2]||[]).map(clean);
-  const colIdx = headerRow.findIndex(c=>c===key);
-  if(colIdx<0) return {result:null, debug:{key, colIdx, note:'row 3(index2) 헤더에서 해당 텍스트를 찾지 못함', header_row:headerRow}};
-  const dataRows = emsRaw.slice(3).filter(r=>r && num(r[0])!==null);
+  let headerRowIdx=-1, colIdx=-1;
+  for(let ri=0; ri<Math.min(5, emsRaw.length); ri++){
+    const row = (emsRaw[ri]||[]).map(clean);
+    const ci = row.findIndex(c=>c===key);
+    if(ci>=0){ headerRowIdx=ri; colIdx=ci; break; }
+  }
+  if(headerRowIdx<0) return {result:null, debug:{key, headerRowIdx, colIdx, note:'첫 5개 행에서 해당 텍스트를 찾지 못함', first5rows: emsRaw.slice(0,5)}};
+  const dataRows = emsRaw.slice(headerRowIdx+1).filter(r=>r && num(r[0])!==null);
   const unit = detectUnit(dataRows, 0);
   const target = unit==='g' ? weightKg*1000 : weightKg;
   let best=null;
@@ -235,10 +239,10 @@ function lookupEmsPrice(emsRaw, weightKg, key){
     if(w===null || w < target - 1e-6) continue;
     if(!best || w<best.w) best = {w, raw:r[colIdx]};
   }
-  if(!best) return {result:null, debug:{key, colIdx, unit, note:'컬럼 A에 조건을 만족하는 무게 행 없음'}};
+  if(!best) return {result:null, debug:{key, headerRowIdx, colIdx, unit, note:'컬럼 A에 조건을 만족하는 무게 행 없음'}};
   const price = num(best.raw);
   const result = price===null ? null : {price, weight: unit==='g' ? best.w/1000 : best.w};
-  return {result, debug:{key, colIdx, unit, matched_weight_row:best.w, raw_price_cell:best.raw}};
+  return {result, debug:{key, headerRowIdx, colIdx, unit, matched_weight_row:best.w, raw_price_cell:best.raw}};
 }
 function findCellLocations(rows, target, maxRows=20){
   const targetC = clean(target);
