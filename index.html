@@ -222,16 +222,14 @@ function packageColIndexFor(key){
   const pos = PACKAGE_HEADER_ORDER.indexOf(key);
   return pos<0 ? -1 : pos+1; // +1: column A is weight
 }
-// EMS-KRW: confirmed real layout (row 3) has THREE "Weigh(구간)" labels. The 2nd and 3rd are each
-// a 2-column merge (visual block separator), hiding one extra real column each — not visible when
-// copied as plain text. Verified against confirmed ground truth: 미국 (naive position 21) sits at
-// real column X once both hidden columns are counted. This is NOT the same layout as Package.
+// Confirmed directly from the actual sheet data: header and data rows are in exact 1:1 column
+// alignment (the weight value repeats at the same 3 positions as the "Weigh(구간)" labels).
+// No offset needed — just skip the "Weigh(구간)" cells when mapping name -> column position.
 const EMS_HEADER_ROW = ["Weigh(구간)","호주","브라질","캐나다","중국","프랑스","독일","홍콩","인도네시아","Weigh(구간)","일본","말레이시아","뉴질랜드","필리핀","러시아","싱가포르","스페인","대만","Weigh(구간)","태국","영국","미국","베트남","1","2","3","4"];
-const EMS_HIDDEN_MERGE_POSITIONS = [9, 18]; // naive positions of the 2nd/3rd "Weigh(구간)" markers
 const EMS_COLUMN_MAP = {};
-EMS_HEADER_ROW.forEach((cell,naiveIdx)=>{
+EMS_HEADER_ROW.forEach((cell,idx)=>{
   if(!cell || cell.startsWith('Weigh')) return;
-  EMS_COLUMN_MAP[cell] = naiveIdx + EMS_HIDDEN_MERGE_POSITIONS.filter(m=>naiveIdx>m).length;
+  EMS_COLUMN_MAP[cell] = idx;
 });
 function emsColIndexFor(key){
   if(!key || !(key in EMS_COLUMN_MAP)) return -1;
