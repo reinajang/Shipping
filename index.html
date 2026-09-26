@@ -132,7 +132,7 @@ async function fetchRows(name){
   return Papa.parse(text.trim(), {skipEmptyLines:false}).data;
 }
 const num = v => { const n = parseFloat(String(v??'').replace(/[^0-9.\-]/g,'')); return isNaN(n)?null:n; };
-const clean = v => (v??'').toString().trim();
+const clean = v => (v??'').toString().normalize('NFC').replace(/[\u200B-\u200D\uFEFF\u00A0]/g,'').trim();
 
 function parseRegion(rows){
   const out=[];
@@ -339,6 +339,10 @@ function compare(){
 
   const pkgKrIdx = DATA.pkg.cols.findIndex(c=>c===country.kr);
   const pkgRegionIdx = DATA.pkg.cols.findIndex(c=>c===country.region);
+  const pkgNearMatches = DATA.pkg.cols
+    .map((c,i)=>({i,c}))
+    .filter(o=>o.c && (o.c.includes(country.kr)||country.kr.includes(o.c)))
+    .map(o=>({index:o.i, value:o.c, exact_equal:o.c===country.kr, length:o.c.length, target_length:country.kr.length}));
   const pkg = lookupPrice(DATA.pkg, weight, country.kr) || lookupPrice(DATA.pkg, weight, country.region);
   results.push({name:'Package', r:pkg});
   lastPackageCheck = {
@@ -347,7 +351,8 @@ function compare(){
     matched_via: pkgKrIdx>=0 ? `국가명 매칭 (col: "${DATA.pkg.cols[pkgKrIdx]}")` : (pkgRegionIdx>=0 ? `지역코드 매칭 (col: "${DATA.pkg.cols[pkgRegionIdx]}")` : '매칭 실패'),
     unit: DATA.pkg.unit,
     result: pkg,
-    pkg_cols_sample: DATA.pkg.cols.slice(0,20)
+    pkg_cols_sample: DATA.pkg.cols.slice(0,20),
+    near_matches_for_kr_name: pkgNearMatches
   };
 
   const ems = lookupPrice(DATA.ems, weight, country.kr) || lookupPrice(DATA.ems, weight, country.region);
