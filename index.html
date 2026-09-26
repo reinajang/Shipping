@@ -222,27 +222,20 @@ function packageColIndexFor(key){
   const pos = PACKAGE_HEADER_ORDER.indexOf(key);
   return pos<0 ? -1 : pos+1; // +1: column A is weight
 }
-function lookupEmsPrice(emsRaw, weightKg, key){
-  let headerRowIdx=-1, colIdx=-1;
-  for(let ri=0; ri<Math.min(5, emsRaw.length); ri++){
-    const row = (emsRaw[ri]||[]).map(clean);
-    const ci = row.findIndex(c=>c===key);
-    if(ci>=0){ headerRowIdx=ri; colIdx=ci; break; }
-  }
-  if(headerRowIdx<0) return {result:null, debug:{key, headerRowIdx, colIdx, note:'첫 5개 행에서 해당 텍스트를 찾지 못함', first5rows: emsRaw.slice(0,5)}};
-  const dataRows = emsRaw.slice(headerRowIdx+1).filter(r=>r && num(r[0])!==null);
-  const unit = detectUnit(dataRows, 0);
-  const target = unit==='g' ? weightKg*1000 : weightKg;
-  let best=null;
-  for(const r of dataRows){
-    const w = num(r[0]);
-    if(w===null || w < target - 1e-6) continue;
-    if(!best || w<best.w) best = {w, raw:r[colIdx]};
-  }
-  if(!best) return {result:null, debug:{key, headerRowIdx, colIdx, unit, note:'컬럼 A에 조건을 만족하는 무게 행 없음'}};
-  const price = num(best.raw);
-  const result = price===null ? null : {price, weight: unit==='g' ? best.w/1000 : best.w};
-  return {result, debug:{key, headerRowIdx, colIdx, unit, matched_weight_row:best.w, raw_price_cell:best.raw}};
+// EMS-KRW: confirmed real layout (row 3) has THREE "Weigh(구간)" labels. The 2nd and 3rd are each
+// a 2-column merge (visual block separator), hiding one extra real column each — not visible when
+// copied as plain text. Verified against confirmed ground truth: 미국 (naive position 21) sits at
+// real column X once both hidden columns are counted. This is NOT the same layout as Package.
+const EMS_HEADER_ROW = ["Weigh(구간)","호주","브라질","캐나다","중국","프랑스","독일","홍콩","인도네시아","Weigh(구간)","일본","말레이시아","뉴질랜드","필리핀","러시아","싱가포르","스페인","대만","Weigh(구간)","태국","영국","미국","베트남","1","2","3","4"];
+const EMS_HIDDEN_MERGE_POSITIONS = [9, 18]; // naive positions of the 2nd/3rd "Weigh(구간)" markers
+const EMS_COLUMN_MAP = {};
+EMS_HEADER_ROW.forEach((cell,naiveIdx)=>{
+  if(!cell || cell.startsWith('Weigh')) return;
+  EMS_COLUMN_MAP[cell] = naiveIdx + EMS_HIDDEN_MERGE_POSITIONS.filter(m=>naiveIdx>m).length;
+});
+function emsColIndexFor(key){
+  if(!key || !(key in EMS_COLUMN_MAP)) return -1;
+  return EMS_COLUMN_MAP[key];
 }
 function findCellLocations(rows, target, maxRows=20){
   const targetC = clean(target);
@@ -406,15 +399,18 @@ function compare(){
     country_name_search_result: findCellLocations(DATA.pkgRawFull, country.kr, 20)
   };
 
-  const emsKrResult = lookupEmsPrice(DATA.emsRawFull, weight, country.kr);
-  const emsRegionResult = (!emsKrResult.result && country.region) ? lookupEmsPrice(DATA.emsRawFull, weight, country.region) : null;
-  const ems = emsKrResult.result || (emsRegionResult && emsRegionResult.result);
+  const emsKrIdx = emsColIndexFor(country.kr);
+  const emsRegionIdx = emsColIndexFor(country.region);
+  const ems = emsKrIdx>=0 ? lookupPriceByIndex(DATA.ems, weight, emsKrIdx)
+            : emsRegionIdx>=0 ? lookupPriceByIndex(DATA.ems, weight, emsRegionIdx)
+            : null;
   results.push({name:'EMS', r:ems});
   lastEmsCheck = {
     country_kr: country.kr,
     country_region: country.region,
-    kr_attempt: emsKrResult.debug,
-    region_attempt: emsRegionResult ? emsRegionResult.debug : 'not attempted (국가명 매칭 성공 또는 지역코드 없음)'
+    matched_via: emsKrIdx>=0 ? `국가명 매칭 (병합 보정, real col index ${emsKrIdx})` : (emsRegionIdx>=0 ? `지역코드 매칭 (병합 보정, real col index ${emsRegionIdx})` : '매칭 실패'),
+    unit: DATA.ems.unit,
+    result: ems
   };
 
   const zone = findFedexZone(DATA.fedexZoneRaw, country);
