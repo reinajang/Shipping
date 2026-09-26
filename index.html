@@ -212,6 +212,30 @@ function lookupFedexPrice(fedexRaw, weightKg, zone){
   const result = price===null ? null : {price, weight: unit==='g' ? best.w/1000 : best.w};
   return {result, debug:{zoneNorm, headerRowIdx, colIdx, unit, matched_weight_row:best.w, raw_price_cell:best.raw}};
 }
+// The header row's Korean text comes back blank from the CSV fetch (likely formula cells
+// that don't evaluate for anonymous export), while literal numbers survive. Confirmed order
+// from the actual sheet, used to match by position instead of by (unreliable) fetched text.
+const PACKAGE_HEADER_ORDER = ['호주','브라질','캐나다','중국','프랑스','독일','홍콩','인도네시아','일본','말레이시아','뉴질랜드','필리핀','러시아','싱가포르','스페인','대만','태국','영국','미국','베트남','1','2','3','4'];
+function packageColIndexFor(key){
+  if(!key) return -1;
+  const pos = PACKAGE_HEADER_ORDER.indexOf(key);
+  return pos<0 ? -1 : pos+1; // +1: column A is weight
+}
+function findCellLocations(rows, target, maxRows=20){
+  const targetC = clean(target);
+  if(!targetC) return [];
+  const hits = [];
+  for(let ri=0; ri<Math.min(maxRows, rows.length); ri++){
+    const row = rows[ri]||[];
+    for(let ci=0; ci<row.length; ci++){
+      const v = clean(row[ci]);
+      if(v && (v===targetC || v.includes(targetC))){
+        hits.push({row:ri, col:ci, value:v, exact:v===targetC});
+      }
+    }
+  }
+  return hits;
+}
 function findFedexZone(zoneRows, country){
   let zoneColIdx = -1;
   for(let ci=0; ci<(zoneRows[0]||[]).length; ci++){
@@ -245,9 +269,10 @@ async function loadAll(){
     const small = parseWeightTable(smallRaw, 0, 1, r => clean(r[0]).includes('소형포장물'));
     const pkg = parseWeightTable(pkgRaw, 0, 0);
     const pkgRawPreview = pkgRaw.slice(0,3);
+    const pkgRawFull = pkgRaw;
     const ems = parseWeightTable(emsRaw, 0, 0);
     const fedex = fedexRaw;
-    DATA = {countries, rincos, kpacket, small, pkg, pkgRawPreview, ems, fedex, fedexZoneRaw};
+    DATA = {countries, rincos, kpacket, small, pkg, pkgRawPreview, pkgRawFull, ems, fedex, fedexZoneRaw};
     localStorage.setItem(CACHE_KEY, JSON.stringify({t:Date.now(), regionRaw,rincosRaw,kpRaw,smallRaw,pkgRaw,emsRaw,fedexRaw,fedexZoneRaw}));
     populateCountries(countries);
     status.textContent = `데이터 로드 완료 · ${countries.length}개국 · ${new Date().toLocaleTimeString('ko-KR')}`;
@@ -266,6 +291,7 @@ async function loadAll(){
         small: parseWeightTable(c.smallRaw,0,1,r=>clean(r[0]).includes('소형포장물')),
         pkg: parseWeightTable(c.pkgRaw,0,0),
         pkgRawPreview: c.pkgRaw.slice(0,3),
+        pkgRawFull: c.pkgRaw,
         ems: parseWeightTable(c.emsRaw,0,0),
         fedex: c.fedexRaw,
         fedexZoneRaw: c.fedexZoneRaw
@@ -339,24 +365,19 @@ function compare(){
   }
   results.push({name:'Small Packet (소형포장물)', r:sm});
 
-  const pkgKrIdx = DATA.pkg.cols.findIndex(c=>c===country.kr);
-  const pkgRegionIdx = DATA.pkg.cols.findIndex(c=>c===country.region);
-  const pkgNearMatches = DATA.pkg.cols
-    .map((c,i)=>({i,c}))
-    .filter(o=>o.c && (o.c.includes(country.kr)||country.kr.includes(o.c)))
-    .map(o=>({index:o.i, value:o.c, exact_equal:o.c===country.kr, length:o.c.length, target_length:country.kr.length}));
-  const pkg = lookupPrice(DATA.pkg, weight, country.kr) || lookupPrice(DATA.pkg, weight, country.region);
+  const pkgKrIdx = packageColIndexFor(country.kr);
+  const pkgRegionIdx = packageColIndexFor(country.region);
+  const pkg = pkgKrIdx>=0 ? lookupPriceByIndex(DATA.pkg, weight, pkgKrIdx)
+            : pkgRegionIdx>=0 ? lookupPriceByIndex(DATA.pkg, weight, pkgRegionIdx)
+            : null;
   results.push({name:'Package', r:pkg});
   lastPackageCheck = {
     country_kr: country.kr,
     country_region: country.region,
-    matched_via: pkgKrIdx>=0 ? `국가명 매칭 (col: "${DATA.pkg.cols[pkgKrIdx]}")` : (pkgRegionIdx>=0 ? `지역코드 매칭 (col: "${DATA.pkg.cols[pkgRegionIdx]}")` : '매칭 실패'),
+    matched_via: pkgKrIdx>=0 ? `국가명 매칭 (위치 기반, index ${pkgKrIdx})` : (pkgRegionIdx>=0 ? `지역코드 매칭 (위치 기반, index ${pkgRegionIdx})` : '매칭 실패'),
     unit: DATA.pkg.unit,
     result: pkg,
-    pkg_cols_sample: DATA.pkg.cols.slice(0,20),
-    near_matches_for_kr_name: pkgNearMatches,
-    raw_header_row_asis: DATA.pkgRawPreview[0],
-    raw_first_data_row: DATA.pkgRawPreview[1]
+    country_name_search_result: findCellLocations(DATA.pkgRawFull, country.kr, 20)
   };
 
   const ems = lookupPrice(DATA.ems, weight, country.kr) || lookupPrice(DATA.ems, weight, country.region);
