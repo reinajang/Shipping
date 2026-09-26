@@ -222,14 +222,15 @@ function packageColIndexFor(key){
   const pos = PACKAGE_HEADER_ORDER.indexOf(key);
   return pos<0 ? -1 : pos+1; // +1: column A is weight
 }
-// Confirmed directly from the actual sheet data: header and data rows are in exact 1:1 column
-// alignment (the weight value repeats at the same 3 positions as the "Weigh(구간)" labels).
-// No offset needed — just skip the "Weigh(구간)" cells when mapping name -> column position.
+// Our own fetch silently drops the 2nd and 3rd duplicate "Weigh(구간)"/weight cells (at naive
+// positions 9 and 18) that exist in the real sheet, shifting every later column LEFT by 1 each
+// time. Verified against the user's actual row data (미국, 영국, 베트남, region "1" all confirmed).
 const EMS_HEADER_ROW = ["Weigh(구간)","호주","브라질","캐나다","중국","프랑스","독일","홍콩","인도네시아","Weigh(구간)","일본","말레이시아","뉴질랜드","필리핀","러시아","싱가포르","스페인","대만","Weigh(구간)","태국","영국","미국","베트남","1","2","3","4"];
+const EMS_DROPPED_POSITIONS = [9, 18]; // naive positions that our fetch omits
 const EMS_COLUMN_MAP = {};
-EMS_HEADER_ROW.forEach((cell,idx)=>{
+EMS_HEADER_ROW.forEach((cell,naiveIdx)=>{
   if(!cell || cell.startsWith('Weigh')) return;
-  EMS_COLUMN_MAP[cell] = idx;
+  EMS_COLUMN_MAP[cell] = naiveIdx - EMS_DROPPED_POSITIONS.filter(m=>m<naiveIdx).length;
 });
 function emsColIndexFor(key){
   if(!key || !(key in EMS_COLUMN_MAP)) return -1;
@@ -406,7 +407,7 @@ function compare(){
   lastEmsCheck = {
     country_kr: country.kr,
     country_region: country.region,
-    matched_via: emsKrIdx>=0 ? `국가명 매칭 (병합 보정, real col index ${emsKrIdx})` : (emsRegionIdx>=0 ? `지역코드 매칭 (병합 보정, real col index ${emsRegionIdx})` : '매칭 실패'),
+    matched_via: emsKrIdx>=0 ? `국가명 매칭 (컬럼 이동 보정, real col index ${emsKrIdx})` : (emsRegionIdx>=0 ? `지역코드 매칭 (컬럼 이동 보정, real col index ${emsRegionIdx})` : '매칭 실패'),
     unit: DATA.ems.unit,
     result: ems
   };
