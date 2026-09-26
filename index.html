@@ -111,6 +111,7 @@ const SHEETS = {
 const CACHE_KEY = 'shipcmp_cache_v1';
 let DATA = null;
 let lastFedexCheck = null;
+let lastPackageCheck = null;
 
 function csvUrl(name){
   return `https://docs.google.com/spreadsheets/d/${SSID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(name)}&_=${Date.now()}`;
@@ -158,8 +159,20 @@ function parseWeightTable(rows, headerRowIdx=0, weightColIdx=0, filterFn=null){
   const unit = detectUnit(dataRows, weightColIdx);
   return {cols, dataRows, weightColIdx, unit};
 }
+function headerIndexFor(cols, key){
+  if(!key) return -1;
+  const keyU = key.toUpperCase();
+  let idx = cols.findIndex(c=>clean(c)===key);
+  if(idx>=0) return idx;
+  idx = cols.findIndex(c=>clean(c).toUpperCase()===keyU);
+  if(idx>=0) return idx;
+  idx = cols.findIndex(c=>(clean(c).split(/\s+/)[0]||'').toUpperCase()===keyU);
+  if(idx>=0) return idx;
+  idx = cols.findIndex(c=>clean(c).toUpperCase().startsWith(keyU));
+  return idx;
+}
 function lookupPrice(table, weightKg, colKey){
-  const idx = table.cols.findIndex(c=>c===colKey);
+  const idx = headerIndexFor(table.cols, colKey);
   if(idx<0) return null;
   const target = table.unit==='g' ? weightKg*1000 : weightKg;
   let best=null;
@@ -308,7 +321,8 @@ function renderDebug(){
     pkg: {unit:DATA.pkg.unit, cols:DATA.pkg.cols.slice(0,6)},
     ems: {unit:DATA.ems.unit, cols:DATA.ems.cols.slice(0,6)},
     fedex_raw_preview: DATA.fedex.slice(0,6),
-    last_fedex_check: lastFedexCheck
+    last_fedex_check: lastFedexCheck,
+    last_package_check: lastPackageCheck
   }, null, 2);
 }
 
@@ -335,8 +349,18 @@ function compare(){
   }
   results.push({name:'Small Packet (소형포장물)', r:sm});
 
+  const pkgKrIdx = headerIndexFor(DATA.pkg.cols, country.kr);
+  const pkgRegionIdx = headerIndexFor(DATA.pkg.cols, country.region);
   const pkg = lookupPrice(DATA.pkg, weight, country.kr) || lookupPrice(DATA.pkg, weight, country.region);
   results.push({name:'Package', r:pkg});
+  lastPackageCheck = {
+    country_kr: country.kr,
+    country_region: country.region,
+    matched_via: pkgKrIdx>=0 ? `국가명 매칭 (col: "${DATA.pkg.cols[pkgKrIdx]}")` : (pkgRegionIdx>=0 ? `지역코드 매칭 (col: "${DATA.pkg.cols[pkgRegionIdx]}")` : '매칭 실패'),
+    unit: DATA.pkg.unit,
+    result: pkg,
+    pkg_cols_sample: DATA.pkg.cols.slice(0,20)
+  };
 
   const ems = lookupPrice(DATA.ems, weight, country.kr) || lookupPrice(DATA.ems, weight, country.region);
   results.push({name:'EMS', r:ems});
