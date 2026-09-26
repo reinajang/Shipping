@@ -105,7 +105,7 @@ const SHEETS = {
   small: '우체국요금',
   package: 'Package-KRW',
   ems: 'EMS-KRW',
-  fedex: 'Fedex2',
+  fedex: 'Fedex',
   fedexZone: 'Fedex Zone'
 };
 const CACHE_KEY = 'shipcmp_cache_v1';
@@ -186,6 +186,29 @@ function lookupPriceByIndex(table, weightKg, colIdx){
   if(price===null) return null;
   return {price, weight: table.unit==='g' ? best.w/1000 : best.w};
 }
+function lookupFedexPrice(fedexRaw, weightKg, zone){
+  const zoneNorm = clean(zone).toUpperCase();
+  let headerRowIdx=-1, colIdx=-1;
+  for(let ri=0; ri<Math.min(8, fedexRaw.length); ri++){
+    const row = fedexRaw[ri]||[];
+    const ci = row.findIndex(c=>clean(c).toUpperCase()===zoneNorm);
+    if(ci>=0){ headerRowIdx=ri; colIdx=ci; break; }
+  }
+  if(headerRowIdx<0) return {result:null, debug:{zoneNorm, headerRowIdx, colIdx, checked_rows: fedexRaw.slice(0,8)}};
+  const dataRows = fedexRaw.slice(headerRowIdx+1).filter(r=>r && num(r[0])!==null);
+  const unit = detectUnit(dataRows, 0);
+  const target = unit==='g' ? weightKg*1000 : weightKg;
+  let best=null;
+  for(const r of dataRows){
+    const w = num(r[0]);
+    if(w===null || w < target - 1e-6) continue;
+    if(!best || w<best.w) best = {w, raw:r[colIdx]};
+  }
+  if(!best) return {result:null, debug:{zoneNorm, headerRowIdx, colIdx, unit, note:'no weight row >= target found'}};
+  const price = num(best.raw);
+  const result = price===null ? null : {price, weight: unit==='g' ? best.w/1000 : best.w};
+  return {result, debug:{zoneNorm, headerRowIdx, colIdx, unit, matched_weight_row:best.w, raw_price_cell:best.raw}};
+}
 function findFedexZone(zoneRows, country){
   let zoneColIdx = -1;
   for(let ci=0; ci<(zoneRows[0]||[]).length; ci++){
@@ -219,7 +242,7 @@ async function loadAll(){
     const small = parseWeightTable(smallRaw, 0, 1, r => clean(r[0]).includes('소형포장물'));
     const pkg = parseWeightTable(pkgRaw, 0, 0);
     const ems = parseWeightTable(emsRaw, 0, 0);
-    const fedex = parseWeightTable(fedexRaw, 3, 0);
+    const fedex = fedexRaw;
     DATA = {countries, rincos, kpacket, small, pkg, ems, fedex, fedexZoneRaw};
     localStorage.setItem(CACHE_KEY, JSON.stringify({t:Date.now(), regionRaw,rincosRaw,kpRaw,smallRaw,pkgRaw,emsRaw,fedexRaw,fedexZoneRaw}));
     populateCountries(countries);
@@ -239,7 +262,7 @@ async function loadAll(){
         small: parseWeightTable(c.smallRaw,0,1,r=>clean(r[0]).includes('소형포장물')),
         pkg: parseWeightTable(c.pkgRaw,0,0),
         ems: parseWeightTable(c.emsRaw,0,0),
-        fedex: parseWeightTable(c.fedexRaw,3,0),
+        fedex: c.fedexRaw,
         fedexZoneRaw: c.fedexZoneRaw
       };
       populateCountries(countries);
@@ -282,7 +305,7 @@ function renderDebug(){
     small: {unit:DATA.small.unit, cols:DATA.small.cols.slice(0,6), rows_filtered:DATA.small.dataRows.length},
     pkg: {unit:DATA.pkg.unit, cols:DATA.pkg.cols.slice(0,6)},
     ems: {unit:DATA.ems.unit, cols:DATA.ems.cols.slice(0,6)},
-    fedex: {unit:DATA.fedex.unit, cols:DATA.fedex.cols.slice(0,6)},
+    fedex_raw_preview: DATA.fedex.slice(0,6),
     last_fedex_check: lastFedexCheck
   }, null, 2);
 }
@@ -317,14 +340,13 @@ function compare(){
   results.push({name:'EMS', r:ems});
 
   const zone = findFedexZone(DATA.fedexZoneRaw, country);
-  const fx = zone ? lookupPrice(DATA.fedex, weight, zone) : null;
+  const fxLookup = zone ? lookupFedexPrice(DATA.fedex, weight, zone) : null;
+  const fx = fxLookup ? fxLookup.result : null;
   results.push({name:'FedEx'+(zone?` (Zone ${zone})`:''), r:fx});
   lastFedexCheck = {
     country: country.kr,
     zone_found: zone,
-    fedex_header_row4: DATA.fedex.cols,
-    zone_found_in_header: zone ? DATA.fedex.cols.includes(zone) : false,
-    price_result: fx
+    lookup_debug: fxLookup ? fxLookup.debug : 'no zone found, lookup not attempted'
   };
   renderDebug();
 
