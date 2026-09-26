@@ -188,14 +188,15 @@ function lookupPriceByIndex(table, weightKg, colIdx){
 }
 function lookupFedexPrice(fedexRaw, weightKg, zone){
   const zoneNorm = clean(zone).toUpperCase();
+  const firstToken = s => (clean(s).split(/\s+/)[0]||'').toUpperCase();
   let headerRowIdx=-1, colIdx=-1;
   for(let ri=0; ri<Math.min(6, fedexRaw.length); ri++){
-    const row = (fedexRaw[ri]||[]).map(clean);
-    const ci = row.findIndex(c=>c.toUpperCase()===zoneNorm);
+    const row = fedexRaw[ri]||[];
+    const ci = row.findIndex(c=>firstToken(c)===zoneNorm);
     if(ci>=0){ headerRowIdx=ri; colIdx=ci; break; }
   }
   const first6rows = fedexRaw.slice(0,6);
-  if(headerRowIdx<0) return {result:null, debug:{zoneNorm, headerRowIdx, colIdx, note:'zone not found as an exact cell in the first 6 rows', first6rows}};
+  if(headerRowIdx<0) return {result:null, debug:{zoneNorm, headerRowIdx, colIdx, note:'zone letter not found as the first token of any cell in the first 6 rows', first6rows}};
   const dataRows = fedexRaw.slice(headerRowIdx+1).filter(r=>r && num(r[0])!==null);
   const unit = detectUnit(dataRows, 0);
   const target = unit==='g' ? weightKg*1000 : weightKg;
