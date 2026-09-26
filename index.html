@@ -244,9 +244,10 @@ async function loadAll(){
     const kpacket = parseWeightTable(kpRaw, 0, 0);
     const small = parseWeightTable(smallRaw, 0, 1, r => clean(r[0]).includes('소형포장물'));
     const pkg = parseWeightTable(pkgRaw, 0, 0);
+    const pkgRawPreview = pkgRaw.slice(0,3);
     const ems = parseWeightTable(emsRaw, 0, 0);
     const fedex = fedexRaw;
-    DATA = {countries, rincos, kpacket, small, pkg, ems, fedex, fedexZoneRaw};
+    DATA = {countries, rincos, kpacket, small, pkg, pkgRawPreview, ems, fedex, fedexZoneRaw};
     localStorage.setItem(CACHE_KEY, JSON.stringify({t:Date.now(), regionRaw,rincosRaw,kpRaw,smallRaw,pkgRaw,emsRaw,fedexRaw,fedexZoneRaw}));
     populateCountries(countries);
     status.textContent = `데이터 로드 완료 · ${countries.length}개국 · ${new Date().toLocaleTimeString('ko-KR')}`;
@@ -264,6 +265,7 @@ async function loadAll(){
         kpacket: parseWeightTable(c.kpRaw,0,0),
         small: parseWeightTable(c.smallRaw,0,1,r=>clean(r[0]).includes('소형포장물')),
         pkg: parseWeightTable(c.pkgRaw,0,0),
+        pkgRawPreview: c.pkgRaw.slice(0,3),
         ems: parseWeightTable(c.emsRaw,0,0),
         fedex: c.fedexRaw,
         fedexZoneRaw: c.fedexZoneRaw
@@ -352,7 +354,9 @@ function compare(){
     unit: DATA.pkg.unit,
     result: pkg,
     pkg_cols_sample: DATA.pkg.cols.slice(0,20),
-    near_matches_for_kr_name: pkgNearMatches
+    near_matches_for_kr_name: pkgNearMatches,
+    raw_header_row_asis: DATA.pkgRawPreview[0],
+    raw_first_data_row: DATA.pkgRawPreview[1]
   };
 
   const ems = lookupPrice(DATA.ems, weight, country.kr) || lookupPrice(DATA.ems, weight, country.region);
