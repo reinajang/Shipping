@@ -105,11 +105,12 @@ const SHEETS = {
   small: '우체국요금',
   package: 'Package-KRW',
   ems: 'EMS-KRW',
-  fedex: 'Fedex',
-  fedexZone: 'Fedex2'
+  fedex: 'Fedex2',
+  fedexZone: 'Fedex Zone'
 };
 const CACHE_KEY = 'shipcmp_cache_v1';
 let DATA = null;
+let lastFedexCheck = null;
 
 function csvUrl(name){
   return `https://docs.google.com/spreadsheets/d/${SSID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(name)}&_=${Date.now()}`;
@@ -281,7 +282,8 @@ function renderDebug(){
     small: {unit:DATA.small.unit, cols:DATA.small.cols.slice(0,6), rows_filtered:DATA.small.dataRows.length},
     pkg: {unit:DATA.pkg.unit, cols:DATA.pkg.cols.slice(0,6)},
     ems: {unit:DATA.ems.unit, cols:DATA.ems.cols.slice(0,6)},
-    fedex: {unit:DATA.fedex.unit, cols:DATA.fedex.cols.slice(0,6)}
+    fedex: {unit:DATA.fedex.unit, cols:DATA.fedex.cols.slice(0,6)},
+    last_fedex_check: lastFedexCheck
   }, null, 2);
 }
 
@@ -317,6 +319,14 @@ function compare(){
   const zone = findFedexZone(DATA.fedexZoneRaw, country);
   const fx = zone ? lookupPrice(DATA.fedex, weight, zone) : null;
   results.push({name:'FedEx'+(zone?` (Zone ${zone})`:''), r:fx});
+  lastFedexCheck = {
+    country: country.kr,
+    zone_found: zone,
+    fedex_header_row4: DATA.fedex.cols,
+    zone_found_in_header: zone ? DATA.fedex.cols.includes(zone) : false,
+    price_result: fx
+  };
+  renderDebug();
 
   const valid = results.filter(x=>x.r);
   const minPrice = valid.length ? Math.min(...valid.map(x=>x.r.price)) : null;
