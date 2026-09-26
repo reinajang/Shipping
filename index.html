@@ -112,6 +112,7 @@ const CACHE_KEY = 'shipcmp_cache_v1';
 let DATA = null;
 let lastFedexCheck = null;
 let lastPackageCheck = null;
+let lastEmsCheck = null;
 
 function csvUrl(name){
   return `https://docs.google.com/spreadsheets/d/${SSID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(name)}&_=${Date.now()}`;
@@ -221,6 +222,38 @@ function packageColIndexFor(key){
   const pos = PACKAGE_HEADER_ORDER.indexOf(key);
   return pos<0 ? -1 : pos+1; // +1: column A is weight
 }
+// EMS-KRW header text also comes back unreliable from the fetch. Confirmed order from the
+// actual sheet: it has THREE separate blocks, each with its own "Weigh(구간)" weight column.
+const EMS_HEADER_ROW = ["Weigh(구간)","호주","브라질","캐나다","중국","프랑스","독일","홍콩","인도네시아","Weigh(구간)","일본","말레이시아","뉴질랜드","필리핀","러시아","싱가포르","스페인","대만","Weigh(구간)","태국","영국","미국","베트남","1","2","3","4"];
+function buildEmsColumnMap(headerRow){
+  const map = {};
+  let currentWeightCol = -1;
+  headerRow.forEach((cell,idx)=>{
+    if(cell.startsWith('Weigh')){ currentWeightCol = idx; return; }
+    if(!cell) return;
+    map[cell] = {colIdx: idx, weightColIdx: currentWeightCol};
+  });
+  return map;
+}
+const EMS_COLUMN_MAP = buildEmsColumnMap(EMS_HEADER_ROW);
+function lookupEmsPrice(emsRaw, weightKg, key){
+  const entry = EMS_COLUMN_MAP[key];
+  if(!entry) return {result:null, debug:{key, note:'키가 EMS_COLUMN_MAP에 없음'}};
+  const {colIdx, weightColIdx} = entry;
+  const dataRows = emsRaw.slice(1).filter(r=>r && num(r[weightColIdx])!==null);
+  const unit = detectUnit(dataRows, weightColIdx);
+  const target = unit==='g' ? weightKg*1000 : weightKg;
+  let best=null;
+  for(const r of dataRows){
+    const w = num(r[weightColIdx]);
+    if(w===null || w < target - 1e-6) continue;
+    if(!best || w<best.w) best = {w, raw:r[colIdx]};
+  }
+  if(!best) return {result:null, debug:{key, colIdx, weightColIdx, unit, note:'해당 블록에 조건을 만족하는 무게 행 없음'}};
+  const price = num(best.raw);
+  const result = price===null ? null : {price, weight: unit==='g' ? best.w/1000 : best.w};
+  return {result, debug:{key, colIdx, weightColIdx, unit, matched_weight_row:best.w, raw_price_cell:best.raw}};
+}
 function findCellLocations(rows, target, maxRows=20){
   const targetC = clean(target);
   if(!targetC) return [];
@@ -271,8 +304,9 @@ async function loadAll(){
     const pkgRawPreview = pkgRaw.slice(0,3);
     const pkgRawFull = pkgRaw;
     const ems = parseWeightTable(emsRaw, 0, 0);
+    const emsRawFull = emsRaw;
     const fedex = fedexRaw;
-    DATA = {countries, rincos, kpacket, small, pkg, pkgRawPreview, pkgRawFull, ems, fedex, fedexZoneRaw};
+    DATA = {countries, rincos, kpacket, small, pkg, pkgRawPreview, pkgRawFull, ems, emsRawFull, fedex, fedexZoneRaw};
     localStorage.setItem(CACHE_KEY, JSON.stringify({t:Date.now(), regionRaw,rincosRaw,kpRaw,smallRaw,pkgRaw,emsRaw,fedexRaw,fedexZoneRaw}));
     populateCountries(countries);
     status.textContent = `데이터 로드 완료 · ${countries.length}개국 · ${new Date().toLocaleTimeString('ko-KR')}`;
@@ -293,6 +327,7 @@ async function loadAll(){
         pkgRawPreview: c.pkgRaw.slice(0,3),
         pkgRawFull: c.pkgRaw,
         ems: parseWeightTable(c.emsRaw,0,0),
+        emsRawFull: c.emsRaw,
         fedex: c.fedexRaw,
         fedexZoneRaw: c.fedexZoneRaw
       };
@@ -338,7 +373,8 @@ function renderDebug(){
     ems: {unit:DATA.ems.unit, cols:DATA.ems.cols.slice(0,6)},
     fedex_raw_preview: DATA.fedex.slice(0,6),
     last_fedex_check: lastFedexCheck,
-    last_package_check: lastPackageCheck
+    last_package_check: lastPackageCheck,
+    last_ems_check: lastEmsCheck
   }, null, 2);
 }
 
@@ -380,8 +416,16 @@ function compare(){
     country_name_search_result: findCellLocations(DATA.pkgRawFull, country.kr, 20)
   };
 
-  const ems = lookupPrice(DATA.ems, weight, country.kr) || lookupPrice(DATA.ems, weight, country.region);
+  const emsKrResult = lookupEmsPrice(DATA.emsRawFull, weight, country.kr);
+  const emsRegionResult = (!emsKrResult.result && country.region) ? lookupEmsPrice(DATA.emsRawFull, weight, country.region) : null;
+  const ems = emsKrResult.result || (emsRegionResult && emsRegionResult.result);
   results.push({name:'EMS', r:ems});
+  lastEmsCheck = {
+    country_kr: country.kr,
+    country_region: country.region,
+    kr_attempt: emsKrResult.debug,
+    region_attempt: emsRegionResult ? emsRegionResult.debug : 'not attempted (국가명 매칭 성공 또는 지역코드 없음)'
+  };
 
   const zone = findFedexZone(DATA.fedexZoneRaw, country);
   const fxLookup = zone ? lookupFedexPrice(DATA.fedex, weight, zone) : null;
