@@ -142,7 +142,8 @@ function parseRegion(rows){
     if(!kr) return;
     if(i===0 && (kr.includes('국가')||kr.toLowerCase().includes('country'))) return;
     const smallPacketFlag = clean(r[4]);
-    out.push({kr, code:clean(r[1]).toUpperCase(), en:clean(r[2]), region:clean(r[3]), smallPacketSupported: smallPacketFlag !== '×'});
+    const extraFeePerTenth = num(r[5]) || 0;
+    out.push({kr, code:clean(r[1]).toUpperCase(), en:clean(r[2]), region:clean(r[3]), smallPacketSupported: smallPacketFlag !== '×', extraFeePerTenth});
   });
   out.sort((a,b)=>a.kr.localeCompare(b.kr,'ko'));
   return out;
@@ -160,6 +161,11 @@ function parseWeightTable(rows, headerRowIdx=0, weightColIdx=0, filterFn=null){
   if(filterFn) dataRows = rows.slice(headerRowIdx+1).filter(r=>r && filterFn(r) && num(r[weightColIdx])!==null);
   const unit = detectUnit(dataRows, weightColIdx);
   return {cols, dataRows, weightColIdx, unit};
+}
+function applyExtraFee(result, feePerTenth){
+  if(!result || !feePerTenth) return result;
+  const surcharge = feePerTenth * (result.weight * 10);
+  return {price: result.price + surcharge, weight: result.weight};
 }
 function lookupPrice(table, weightKg, colKey){
   const idx = table.cols.findIndex(c=>c===colKey);
@@ -373,24 +379,26 @@ function compare(){
     const rc = lookupPriceByIndex(DATA.rincos, weight, 1);
     results.push({name:'Rincos', r:rc});
   }
-  const kp = lookupPrice(DATA.kpacket, weight, country.kr);
+  const kp = applyExtraFee(lookupPrice(DATA.kpacket, weight, country.kr), country.extraFeePerTenth);
   results.push({name:'K-Packet', r:kp});
 
   let sm = null;
   if(!country.smallPacketSupported){
-    sm = null; // × in Post Region column E: this country doesn't support Small Packet at all
+    sm = null;
   } else if(country.code==='US' || (country.en||'').toUpperCase()==='UNITED STATES'){
     sm = lookupPrice(DATA.small, weight, 'US') || lookupPrice(DATA.small, weight, country.region);
   } else {
     sm = lookupPrice(DATA.small, weight, country.region);
   }
+  sm = applyExtraFee(sm, country.extraFeePerTenth);
   results.push({name:'Small Packet (소형포장물)', r:sm});
 
   const pkgKrIdx = packageColIndexFor(country.kr);
   const pkgRegionIdx = packageColIndexFor(country.region);
-  const pkg = pkgKrIdx>=0 ? lookupPriceByIndex(DATA.pkg, weight, pkgKrIdx)
+  let pkg = pkgKrIdx>=0 ? lookupPriceByIndex(DATA.pkg, weight, pkgKrIdx)
             : pkgRegionIdx>=0 ? lookupPriceByIndex(DATA.pkg, weight, pkgRegionIdx)
             : null;
+  pkg = applyExtraFee(pkg, country.extraFeePerTenth);
   results.push({name:'Package', r:pkg});
   lastPackageCheck = {
     country_kr: country.kr,
@@ -403,9 +411,10 @@ function compare(){
 
   const emsKrIdx = emsColIndexFor(country.kr);
   const emsRegionIdx = emsColIndexFor(country.region);
-  const ems = emsKrIdx>=0 ? lookupPriceByIndex(DATA.ems, weight, emsKrIdx)
+  let ems = emsKrIdx>=0 ? lookupPriceByIndex(DATA.ems, weight, emsKrIdx)
             : emsRegionIdx>=0 ? lookupPriceByIndex(DATA.ems, weight, emsRegionIdx)
             : null;
+  ems = applyExtraFee(ems, country.extraFeePerTenth);
   results.push({name:'EMS', r:ems});
   lastEmsCheck = {
     country_kr: country.kr,
