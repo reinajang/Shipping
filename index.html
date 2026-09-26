@@ -99,7 +99,7 @@ pre{white-space:pre-wrap;font-size:.72rem;background:var(--bg);padding:10px;bord
 <script>
 const SSID = '1MXQKy6Br363xvS47-cYwZNPGn0PnyYERdb_TugM0RGc';
 const SHEETS = {
-  region: 'Post Region',
+  region: 'Region',
   rincos: 'rincos',
   kpacket: 'K-packet',
   small: '우체국요금',
@@ -141,7 +141,8 @@ function parseRegion(rows){
     const kr=clean(r[0]);
     if(!kr) return;
     if(i===0 && (kr.includes('국가')||kr.toLowerCase().includes('country'))) return;
-    out.push({kr, code:clean(r[1]).toUpperCase(), en:clean(r[2]), region:clean(r[3])});
+    const smallPacketFlag = clean(r[4]);
+    out.push({kr, code:clean(r[1]).toUpperCase(), en:clean(r[2]), region:clean(r[3]), smallPacketSupported: smallPacketFlag !== '×'});
   });
   out.sort((a,b)=>a.kr.localeCompare(b.kr,'ko'));
   return out;
@@ -376,7 +377,9 @@ function compare(){
   results.push({name:'K-Packet', r:kp});
 
   let sm = null;
-  if(country.code==='US' || (country.en||'').toUpperCase()==='UNITED STATES'){
+  if(!country.smallPacketSupported){
+    sm = null; // × in Post Region column E: this country doesn't support Small Packet at all
+  } else if(country.code==='US' || (country.en||'').toUpperCase()==='UNITED STATES'){
     sm = lookupPrice(DATA.small, weight, 'US') || lookupPrice(DATA.small, weight, country.region);
   } else {
     sm = lookupPrice(DATA.small, weight, country.region);
