@@ -227,11 +227,9 @@ function packageColIndexFor(key){
 const EMS_HEADER_ROW = ["Weigh(구간)","호주","브라질","캐나다","중국","프랑스","독일","홍콩","인도네시아","Weigh(구간)","일본","말레이시아","뉴질랜드","필리핀","러시아","싱가포르","스페인","대만","Weigh(구간)","태국","영국","미국","베트남","1","2","3","4"];
 function buildEmsColumnMap(headerRow){
   const map = {};
-  let currentWeightCol = -1;
   headerRow.forEach((cell,idx)=>{
-    if(cell.startsWith('Weigh')){ currentWeightCol = idx; return; }
-    if(!cell) return;
-    map[cell] = {colIdx: idx, weightColIdx: currentWeightCol};
+    if(!cell || cell.startsWith('Weigh')) return;
+    map[cell] = {colIdx: idx};
   });
   return map;
 }
@@ -239,20 +237,20 @@ const EMS_COLUMN_MAP = buildEmsColumnMap(EMS_HEADER_ROW);
 function lookupEmsPrice(emsRaw, weightKg, key){
   const entry = EMS_COLUMN_MAP[key];
   if(!entry) return {result:null, debug:{key, note:'키가 EMS_COLUMN_MAP에 없음'}};
-  const {colIdx, weightColIdx} = entry;
-  const dataRows = emsRaw.slice(1).filter(r=>r && num(r[weightColIdx])!==null);
-  const unit = detectUnit(dataRows, weightColIdx);
+  const colIdx = entry.colIdx;
+  const dataRows = emsRaw.slice(1).filter(r=>r && num(r[0])!==null);
+  const unit = detectUnit(dataRows, 0);
   const target = unit==='g' ? weightKg*1000 : weightKg;
   let best=null;
   for(const r of dataRows){
-    const w = num(r[weightColIdx]);
+    const w = num(r[0]);
     if(w===null || w < target - 1e-6) continue;
     if(!best || w<best.w) best = {w, raw:r[colIdx]};
   }
-  if(!best) return {result:null, debug:{key, colIdx, weightColIdx, unit, note:'해당 블록에 조건을 만족하는 무게 행 없음'}};
+  if(!best) return {result:null, debug:{key, colIdx, unit, note:'컬럼 A에 조건을 만족하는 무게 행 없음'}};
   const price = num(best.raw);
   const result = price===null ? null : {price, weight: unit==='g' ? best.w/1000 : best.w};
-  return {result, debug:{key, colIdx, weightColIdx, unit, matched_weight_row:best.w, raw_price_cell:best.raw}};
+  return {result, debug:{key, colIdx, unit, matched_weight_row:best.w, raw_price_cell:best.raw}};
 }
 function findCellLocations(rows, target, maxRows=20){
   const targetC = clean(target);
